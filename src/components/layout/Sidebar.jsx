@@ -37,9 +37,9 @@ export default function Sidebar({ isOpen, onClose, isCollapsed = true }) {
           <div className="h-20 border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0">
             {isCollapsed ? (
               /* Mini Mode Circular Logo Badge matching reference */
-              <div className="mx-auto w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-lg p-1.5 transition-transform hover:scale-105 cursor-pointer">
+              <div className="mx-auto w-15 h-15 rounded-full  flex items-center justify-center shadow-lg  transition-transform hover:scale-105 cursor-pointer">
                 <img
-                  src="/assets/vyapti_logo.png"
+                  src="/assets/vishal_mega_mart_icon.png"
                   alt="Vyapti Logo"
                   className="w-full h-full object-contain"
                 />

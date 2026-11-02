@@ -87,7 +87,7 @@ const Login = ({ onLogin }) => {
                     {/* Vyapti Logo on Top of Welcome Text */}
                     <div className="mb-6 sm:mb-8">
                         <img
-                            src="/assets/vyapti_logo.png"
+                            src="/assets/vishal_mega_mart.png"
                             alt="Vyapti Logo"
                             className="h-16 sm:h-20 md:h-[84px] w-auto object-contain transition-transform hover:scale-105 duration-200"
                         />
