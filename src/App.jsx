@@ -36,14 +36,32 @@ const App = () => {
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUser(null);
     try {
       sessionStorage.removeItem('auth_user');
+      sessionStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
+      localStorage.removeItem('auth_token');
     } catch (e) {
       console.error('Failed to clear session storage', e);
     }
+
+    setUser(null);
+    setIsAuthenticated(false);
+
+    // Current redirection code:
+    /*
+    const vyaptiLogoutUrl =
+      import.meta.env?.VITE_VYAPTI_LOGOUT_URL ||
+      'http://172.20.204.231/VYAPTI_RETAIL_SUITE/index.aspx';
+
+    if (typeof window !== 'undefined' && window.location) {
+      if (typeof window.location.replace === 'function') {
+        window.location.replace(vyaptiLogoutUrl);
+      } else {
+        window.location.href = vyaptiLogoutUrl;
+      }
+    }
+    */
   };
 
   return (

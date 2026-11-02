@@ -46,6 +46,10 @@ export function normalizeDashboardData(data) {
       safeAmt = isNaN(parsed) ? 0 : parsed;
     }
 
+    let status = inc.AlertStatus || 'Loss Alert';
+    if (status.toLowerCase().includes('theft')) status = status.replace(/theft/gi, 'Loss');
+    if (status.toLowerCase().includes('untagged')) status = status.replace(/untagged/gi, 'Checkout');
+
     return {
       id: inc.EPC || inc.Id || `inc-${index}`,
       articleDescription: inc.ArticleDescription || inc.ItemName || inc.ArticleDesc || 'Untitled Article',
@@ -55,8 +59,8 @@ export function normalizeDashboardData(data) {
       amountDisplay: `₹${safeAmt.toLocaleString('en-IN')}`,
       date: inc.IncidentDate || inc.Date || '',
       time: inc.IncidentTime || inc.Time || '',
-      status: inc.AlertStatus || 'Theft Alert',
-      variant: 'theft',
+      status,
+      variant: 'loss',
       storeCode: inc.StoreCode || '',
       storeName: inc.StoreName || '',
     };
@@ -65,7 +69,9 @@ export function normalizeDashboardData(data) {
   return {
     date: data.Date || null,
     totalTags: summary.TotalTags != null ? String(summary.TotalTags) : '0',
+    checkout: summary.Checkout != null ? String(summary.Checkout) : (summary.Untagged != null ? String(summary.Untagged) : '0'),
     untagged: summary.Untagged != null ? String(summary.Untagged) : (summary.Checkout != null ? String(summary.Checkout) : '0'),
+    loss: summary.Loss != null ? String(summary.Loss) : (summary.TheftAlerts != null ? String(summary.TheftAlerts) : '0'),
     theftAlerts: summary.TheftAlerts != null ? String(summary.TheftAlerts) : (summary.Loss != null ? String(summary.Loss) : '0'),
     potentialLoss: formatCurrency(rawLoss),
     incidents,
@@ -201,6 +207,10 @@ export function normalizeSingleIncident(inc, index = 0) {
   const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const defaultTime = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
+  let status = inc.AlertStatus || inc.EventType || 'Loss Alert';
+  if (status.toLowerCase().includes('theft')) status = status.replace(/theft/gi, 'Loss');
+  if (status.toLowerCase().includes('untagged')) status = status.replace(/untagged/gi, 'Checkout');
+
   return {
     id: inc.EPC || inc.EpcCode || inc.Id || `inc-${Date.now()}-${index}`,
     articleDescription: inc.ArticleDescription || inc.ItemName || inc.ArticleDesc || 'Untitled Article',
@@ -210,8 +220,8 @@ export function normalizeSingleIncident(inc, index = 0) {
     amountDisplay: `₹${safeAmt.toLocaleString('en-IN')}`,
     date: inc.IncidentDate || inc.Date || defaultDate,
     time: inc.IncidentTime || inc.Time || defaultTime,
-    status: inc.AlertStatus || inc.EventType || 'Theft Alert',
-    variant: 'theft',
+    status,
+    variant: 'loss',
     storeCode: inc.StoreCode || '',
     storeName: inc.StoreName || '',
   };
@@ -360,7 +370,9 @@ export async function fetchAnalyticsDashboard(payload = {}) {
       startDate: data.StartDate,
       endDate: data.EndDate,
       totalTags: summary.TotalTags != null ? String(summary.TotalTags) : '0',
+      checkout: summary.Checkout != null ? String(summary.Checkout) : (summary.Untagged != null ? String(summary.Untagged) : '0'),
       untagged: summary.Untagged != null ? String(summary.Untagged) : (summary.Checkout != null ? String(summary.Checkout) : '0'),
+      loss: summary.Loss != null ? String(summary.Loss) : (summary.TheftAlerts != null ? String(summary.TheftAlerts) : '0'),
       theftAlerts: summary.TheftAlerts != null ? String(summary.TheftAlerts) : (summary.Loss != null ? String(summary.Loss) : '0'),
       potentialLoss: formatCurrency(rawLoss),
       tagStatusDistribution: data.TagStatusDistribution || null,
@@ -374,35 +386,248 @@ export async function fetchAnalyticsDashboard(payload = {}) {
   }
 }
 
-export async function fetchIncidentReport(payload = {}) {
+/**
+ * Normalizes any date representation (DD-MM-YYYY, ISO, or Date) to standard API format YYYY-MM-DD
+ * @param {string|Date} d 
+ * @returns {string|undefined}
+ */
+export function toIsoDate(d) {
+  if (!d) return undefined;
+  if (typeof d === 'string') {
+    const trimmed = d.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parts = trimmed.split('-');
+    if (parts.length === 3 && parts[0].length <= 2) {
+      // DD-MM-YYYY -> YYYY-MM-DD
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+  const dateObj = new Date(d);
+  if (!isNaN(dateObj.getTime())) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return String(d);
+}
+
+export async function fetchIncidentReportSummary(payload = {}) {
   try {
+    let rawEventType = payload.EventType ?? 'All';
+    if (rawEventType.toLowerCase() === 'loss') {
+      rawEventType = 'Theft';
+    } else if (rawEventType.toLowerCase() === 'checkout') {
+      rawEventType = 'Untagged';
+    }
+
     const body = {
       PageSize: payload.PageSize ?? 10,
       PageNumber: payload.PageNumber ?? 1,
-      EventType: payload.EventType ?? 'All',
+      EventType: rawEventType,
       Search: payload.Search ?? '',
     };
 
-    const fromDate = payload.StartDate || payload.FromDate;
-    const toDate = payload.EndDate || payload.ToDate;
+    if (payload.Preset) {
+      body.Preset = payload.Preset;
+    }
+
+    const fromDate = toIsoDate(payload.StartDate || payload.FromDate);
+    const toDate = toIsoDate(payload.EndDate || payload.ToDate);
 
     if (fromDate) {
       body.FromDate = fromDate;
       body.StartDate = fromDate;
     }
-
     if (toDate) {
       body.ToDate = toDate;
       body.EndDate = toDate;
     }
-
     if (payload.StoreCode || payload.StoreId) {
       body.StoreCode = payload.StoreCode || payload.StoreId;
     }
 
-    delete body.Preset;
+    // Call /api/incidentReport for main table date-wise summary records
+    // In parallel, call /api/incidentReportDetails with PageSize: 1 to get exact overall KPI metrics
+    const [summaryRes, kpiRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/api/incidentReport`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      fetch(`${API_BASE_URL}/api/incidentReportDetails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          Preset: body.Preset,
+          FromDate: body.FromDate,
+          ToDate: body.ToDate,
+          StoreCode: body.StoreCode,
+          EventType: rawEventType,
+          PageNumber: 1,
+          PageSize: 1,
+        }),
+      }).catch(() => null),
+    ]);
 
-    const response = await fetch(`${API_BASE_URL}/api/incidentReport`, {
+    if (!summaryRes.ok) {
+      throw new Error(`API error: ${summaryRes.status} ${summaryRes.statusText}`);
+    }
+
+    const data = await summaryRes.json();
+    let kpiData = null;
+    if (kpiRes && kpiRes.ok) {
+      try {
+        kpiData = await kpiRes.json();
+      } catch (e) {
+        console.warn('Failed to parse kpiData:', e);
+      }
+    }
+
+    // Support direct array, data.Records, or data.value
+    const rawRecords = Array.isArray(data)
+      ? data
+      : (data.Records || data.value || data.records || []);
+    const totalRecords = Number(data.TotalRecords ?? data.Count ?? rawRecords.length);
+
+    // Normalize Summary KPI metrics
+    const summaryObj = data?.Summary || kpiData?.Summary || kpiData || {};
+    const totalTags = Number(data?.TotalAll ?? data?.TotalTags ?? summaryObj.TotalTags ?? kpiData?.TotalTags ?? rawRecords.reduce((acc, r) => acc + (Number(r.Qty) || 0), 0));
+    const totalCheckout = Number(data?.TotalCheckout ?? data?.TotalUntagged ?? summaryObj.Checkout ?? summaryObj.Untagged ?? kpiData?.TotalCheckout ?? kpiData?.TotalUntagged ?? 0);
+    const totalLoss = Number(data?.TotalLoss ?? data?.TotalTheft ?? summaryObj.Loss ?? summaryObj.TheftAlerts ?? kpiData?.TotalLoss ?? kpiData?.TotalTheft ?? 0);
+
+    let potentialLoss = data?.PotentialLossDisplay ?? data?.TotalLossDisplay ?? data?.PotentialLoss ?? summaryObj.PotentialLossDisplay ?? kpiData?.PotentialLossDisplay ?? summaryObj.PotentialLoss;
+    if (!potentialLoss || potentialLoss === 'N/A' || potentialLoss === 'NA') {
+      const sumLoss = rawRecords.reduce((acc, r) => acc + (typeof r.Amount === 'number' && !isNaN(r.Amount) ? r.Amount : 0), 0);
+      potentialLoss = formatCurrency(sumLoss);
+    } else {
+      potentialLoss = formatCurrency(potentialLoss);
+    }
+
+    const records = rawRecords.map((item, idx) => {
+      let rawEventType = item.EventType || 'Loss';
+      if (rawEventType.toLowerCase() === 'theft') rawEventType = 'Loss';
+      if (rawEventType.toLowerCase() === 'untagged') rawEventType = 'Checkout';
+
+      // Article Count: numeric or "N/A"
+      let articleCount = item.ArticleCount;
+      if (articleCount === 'N/A' || articleCount === 'NA' || (articleCount === null && rawEventType === 'Checkout')) {
+        articleCount = 'N/A';
+      } else {
+        const parsedCount = Number(articleCount);
+        articleCount = !isNaN(parsedCount) && articleCount !== null && articleCount !== '' ? parsedCount : (rawEventType === 'Checkout' ? 'N/A' : 0);
+      }
+
+      // Amount: numeric or "N/A"
+      const rawAmt = item.Amount;
+      const rawAmtDisplay = item.AmountDisplay;
+      let safeAmt = 0;
+      let isAmountNA = false;
+
+      if (rawAmt === 'N/A' || rawAmt === 'NA' || (rawAmtDisplay === 'N/A' && (rawAmt === null || rawAmt === undefined || rawAmt === 0))) {
+        isAmountNA = true;
+        safeAmt = 'N/A';
+      } else if (typeof rawAmt === 'number' && !isNaN(rawAmt)) {
+        safeAmt = rawAmt;
+      } else if (rawAmt !== null && rawAmt !== undefined && rawAmt !== '') {
+        const parsed = Number(String(rawAmt).replace(/[₹,$,\s]/g, ''));
+        if (!isNaN(parsed)) {
+          safeAmt = parsed;
+        } else {
+          isAmountNA = true;
+          safeAmt = 'N/A';
+        }
+      } else {
+        if (rawEventType === 'Checkout') {
+          isAmountNA = true;
+          safeAmt = 'N/A';
+        } else {
+          safeAmt = 0;
+        }
+      }
+
+      const amountDisplay = isAmountNA || safeAmt === 'N/A'
+        ? 'N/A'
+        : (rawAmtDisplay && rawAmtDisplay !== 'N/A' ? formatCurrency(rawAmtDisplay) : formatCurrency(safeAmt));
+
+      return {
+        id: `summary-${item.Date || idx}-${item.StoreCode || ''}-${rawEventType}-${idx}`,
+        srNo: item.SrNo ?? idx + 1,
+        date: item.Date || '',
+        storeCode: item.StoreCode || '',
+        storeName: item.StoreName || '',
+        eventType: rawEventType,
+        articleCount,
+        qty: Number(item.Qty ?? 0),
+        amount: safeAmt,
+        amountDisplay,
+      };
+    });
+
+    return {
+      code: data.Code || 1,
+      msg: data.Msg || 'Success',
+      preset: payload.Preset || data.Preset,
+      startDate: fromDate,
+      endDate: toDate,
+      summary: summaryObj,
+      totalAll: totalTags,
+      totalTags,
+      totalLoss,
+      theftAlerts: totalLoss,
+      loss: totalLoss,
+      totalCheckout,
+      untagged: totalCheckout,
+      checkout: totalCheckout,
+      potentialLoss,
+      pageNumber: Number(data.PageNumber ?? body.PageNumber),
+      pageSize: Number(data.PageSize ?? body.PageSize),
+      totalRecords,
+      totalPages: Number(data.TotalPages ?? ((Math.ceil(totalRecords / (body.PageSize || 10))) || 1)),
+      records,
+    };
+  } catch (error) {
+    console.error('Error fetching incident report summary:', error);
+    throw error;
+  }
+}
+
+export async function fetchIncidentReportDetails(payload = {}) {
+  try {
+    let rawEventType = payload.EventType ?? 'All';
+    if (rawEventType.toLowerCase() === 'theft') {
+      rawEventType = 'Loss';
+    } else if (rawEventType.toLowerCase() === 'untagged') {
+      rawEventType = 'Checkout';
+    }
+
+    const body = {
+      PageSize: payload.PageSize ?? 10,
+      PageNumber: payload.PageNumber ?? 1,
+      EventType: rawEventType,
+      Search: payload.Search ?? '',
+    };
+
+    if (payload.Date) {
+      body.Date = payload.Date;
+    }
+
+    const fromDate = toIsoDate(payload.Date || payload.StartDate || payload.FromDate);
+    const toDate = toIsoDate(payload.Date || payload.EndDate || payload.ToDate);
+
+    if (fromDate) {
+      body.FromDate = fromDate;
+      body.StartDate = fromDate;
+    }
+    if (toDate) {
+      body.ToDate = toDate;
+      body.EndDate = toDate;
+    }
+    if (payload.StoreCode || payload.StoreId) {
+      body.StoreCode = payload.StoreCode || payload.StoreId;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/incidentReportDetails`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -417,11 +642,11 @@ export async function fetchIncidentReport(payload = {}) {
     const data = await response.json();
     const summary = data.Summary || {};
     const totalAll = Number(data.TotalAll ?? data.TotalTags ?? summary.TotalTags ?? data.TotalRecords ?? 0);
-    const totalTheft = Number(data.TotalTheft ?? data.TheftAlerts ?? summary.TheftAlerts ?? summary.Loss ?? 0);
-    const totalUntagged = Number(data.TotalUntagged ?? data.Untagged ?? summary.Untagged ?? summary.Checkout ?? 0);
+    const totalTheft = Number(data.TotalTheft ?? data.TotalLoss ?? data.TheftAlerts ?? data.Loss ?? summary.TheftAlerts ?? summary.Loss ?? 0);
+    const totalUntagged = Number(data.TotalUntagged ?? data.TotalCheckout ?? data.Untagged ?? data.Checkout ?? summary.Untagged ?? summary.Checkout ?? 0);
     const totalTags = Number(data.TotalTags ?? summary.TotalTags ?? totalAll);
-    const theftAlerts = Number(data.TheftAlerts ?? summary.TheftAlerts ?? totalTheft);
-    const untagged = Number(data.Untagged ?? summary.Untagged ?? totalUntagged);
+    const theftAlerts = Number(data.TheftAlerts ?? data.Loss ?? summary.TheftAlerts ?? summary.Loss ?? totalTheft);
+    const untagged = Number(data.Untagged ?? data.Checkout ?? summary.Untagged ?? summary.Checkout ?? totalUntagged);
 
     let potentialLoss = data.PotentialLossDisplay || data.TotalLossDisplay || summary.PotentialLossDisplay;
     if (!potentialLoss || potentialLoss === 'N/A' || potentialLoss === 'NA') {
@@ -442,16 +667,20 @@ export async function fetchIncidentReport(payload = {}) {
       summary: data.Summary || null,
       totalAll,
       totalTheft,
+      totalLoss: totalTheft,
       totalUntagged,
+      totalCheckout: totalUntagged,
       totalTags,
       theftAlerts,
+      loss: theftAlerts,
       untagged,
+      checkout: untagged,
       potentialLoss,
       pageNumber: Number(data.PageNumber ?? body.PageNumber),
       pageSize: Number(data.PageSize ?? body.PageSize),
       totalRecords: Number(data.TotalRecords ?? (data.Records ? data.Records.length : 0)),
       totalPages: Number(data.TotalPages ?? 1),
-      records: (data.Records || []).map((item, idx) => {
+      records: (data.Records || data.value || []).map((item, idx) => {
         const rawAmt = item.Amount ?? item.AmountDisplay ?? 0;
         let safeAmt = 0;
         if (typeof rawAmt === 'number' && !isNaN(rawAmt)) {
@@ -461,25 +690,45 @@ export async function fetchIncidentReport(payload = {}) {
           safeAmt = isNaN(parsed) ? 0 : parsed;
         }
 
+        const rawMrp = item.MRP ?? item.MRPDisplay ?? 0;
+        let safeMrp = 0;
+        if (typeof rawMrp === 'number' && !isNaN(rawMrp)) {
+          safeMrp = rawMrp;
+        } else if (rawMrp && rawMrp !== 'N/A' && rawMrp !== 'NA') {
+          const parsed = Number(String(rawMrp).replace(/[₹,\s]/g, ''));
+          safeMrp = isNaN(parsed) ? 0 : parsed;
+        }
+
+        let rawEventType = item.EventType || 'Loss';
+        if (rawEventType.toLowerCase() === 'theft') rawEventType = 'Loss';
+        if (rawEventType.toLowerCase() === 'untagged') rawEventType = 'Checkout';
+
         return {
-          id: item.EpcCode || `inc-${item.SrNo || idx}`,
+          id: item.EpcCode || item.EPC || `detail-${item.SrNo || idx}`,
           srNo: item.SrNo ?? idx + 1,
           date: item.Date || '',
           time: item.Time || '',
           storeCode: item.StoreCode || '',
           storeName: item.StoreName || '',
-          epc: item.EpcCode || '',
+          epc: item.EpcCode || item.EPC || '',
           articleNo: item.ArticleNo || '',
           articleDescription: item.ArticleDescription || '',
+          mrp: safeMrp,
+          mrpDisplay: formatCurrency(safeMrp),
           qty: item.Qty ?? 1,
           amount: safeAmt,
-          amountDisplay: `₹${safeAmt.toLocaleString('en-IN')}`,
-          eventType: item.EventType || 'Theft',
+          amountDisplay: formatCurrency(safeAmt),
+          eventType: rawEventType,
         };
       }),
     };
   } catch (error) {
-    console.error('Error fetching incident report data:', error);
+    console.error('Error fetching incident report details:', error);
     throw error;
   }
+}
+
+// Backward compatibility alias: fetchIncidentReport delegates to fetchIncidentReportSummary
+export async function fetchIncidentReport(payload = {}) {
+  return fetchIncidentReportSummary(payload);
 }

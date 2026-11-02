@@ -1088,7 +1088,28 @@ While bar charts in `TheftByTimeOfDay.jsx` and `TheftByDayOfWeek.jsx` had been b
 
 ---
 
-## 36. Summary & Architectural Takeaways
+## 36. Challenge 32: Upstream Codebase Synchronization & Brand Asset Isolation Protocol
+
+### The Problem
+When synchronizing functional updates, new reporting modules, SweetAlert modals, and API enhancements from the central product repository (`Loss-Prevention-Goods-Security`) into the store-branded deployment (`VMM_Loss_prevention_Goods_Security`):
+- **Asset Divergence**: Central repository uses standard product brand assets (`tecmi_vyapti_logo.png`, `site-logo1.png`), whereas the VMM deployment requires custom retailer branding (`vishal_mega_mart.png`, `vishal_mega_mart_icon.png`).
+- **Overwriting Risk**: Blindly merging upstream trees risks wiping out custom brand assets in `public/assets/` or creating broken image paths (404s) for missing asset filenames.
+
+### Technical Solution
+1. **Targeted Git Tree Checkout with Path Exclusion**:
+   - Fetched upstream references without history corruption.
+   - Checked out code updates from upstream main while strictly excluding the assets folder using git pathspec: `git checkout upstream/main -- . ':!public/assets'`.
+2. **Brand Preservation & Defensive Fallback Mechanisms**:
+   - Preserved `vishal_mega_mart.png` in `Login.jsx` header and `vishal_mega_mart_icon.png` in mini-mode `Sidebar.jsx`.
+   - In `Sidebar.jsx` expanded mode, integrated `vishal_mega_mart.png` with white brand header container.
+   - Equipped all secondary asset tags (`site-logo1.png` in `Footer.jsx` and `Login.jsx`) with dynamic `onError` image handlers falling back seamlessly to `/assets/vyapti_logo.png`, preventing broken 404 image icons in all deployment scenarios.
+3. **Verification**:
+   - `npm install`: Added font dependencies (`@fontsource/plus-jakarta-sans`).
+   - `npm run build`: Zero errors, production bundle compiled cleanly in under 1.3 seconds.
+
+---
+
+## 37. Summary & Architectural Takeaways
 
 | Feature / Area | Initial Challenge | Final Solution | Architectural Benefit |
 | :--- | :--- | :--- | :--- |
@@ -1124,6 +1145,7 @@ While bar charts in `TheftByTimeOfDay.jsx` and `TheftByDayOfWeek.jsx` had been b
 | **Single Date Output** | Redundant `X → X` or `X - X` for single day or Today | Emits and displays single `DD-MM-YYYY` value when startDate === endDate | Concise UI, clean data emission, zero visual redundancy |
 | **Large-Screen Analytics** | Narrow 520px charts and small 192px pie cards on 1704px screens | 680px full-width viewBox, 320px 3D pie, items-stretch, 425px min-heights | Full viewport balance, zero side gutters, bold charts, generous sizing |
 | **Vertical Graph Coverage** | Chart floating in vertical center with large blank space top/bottom | 290px viewBoxHeight, 226px bar height (+53%), streamlined padding | Graph covers entire card interior height without awkward voids |
+| **Upstream Sync & Asset Isolation** | Central repo updates risk overwriting custom retailer assets | Targeted checkout excluding `public/assets` + defensive `onError` fallbacks | Clean synchronization of upstream features while preserving custom branding |
 
 
 
